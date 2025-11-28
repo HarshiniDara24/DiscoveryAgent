@@ -4,11 +4,11 @@ from fastapi.responses import StreamingResponse
 import boto3
 import json
 import io
-
+import uuid
 from utils import read_file_to_text
-from utils import generate_food_app_pdf,build_pdf_from_text
-from utils import read_file_to_text, build_pdf_from_text, build_docx_from_text
 
+from utils import read_file_to_text, build_pdf_from_text, build_docx_from_text
+# from utils import build_pdf_from_text, build_docx_from_text
 app = FastAPI()
 
 # CORS
@@ -21,7 +21,31 @@ app.add_middleware(
 )
 
 # Bedrock client (your config)
-bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+#bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+bedrock_agent = boto3.client("bedrock-agent-runtime", region_name="us-west-2")
+
+
+def call_bedrock_agent(text_chunk: str) -> str:
+    response = bedrock_agent.invoke_agent(
+        agentId="WV377KFVLT",
+        agentAliasId="DU33NRPMSU",
+       
+        sessionId=str(uuid.uuid4()),
+        inputText=text_chunk
+    )
+
+    output = ""
+    for event in response["completion"]:
+        if "chunk" in event:
+            output += event["chunk"]["bytes"].decode()
+        elif "returnControl" in event:
+            pass
+        elif "trace" in event:
+            pass
+
+
+    return output.strip()
+
 
 
 @app.get("/")
@@ -47,83 +71,12 @@ async def clean_file(file: UploadFile = File(...)):
 
         # 3️⃣ Send chunks to Claude AI
         for chunk in chunks:
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": f"""
-You are an enterprise application architect with deep expertise in both MERN stack systems and Guidewire InsuranceSuite.
-
-Your task is to **analyze the structure of the input text**, detect the MERN-stack based architecture, and then **rewrite the document so that the application is implemented using the Guidewire ecosystem.**
-
-Do not do word-by-word replacements. Instead, perform a **functional mapping**:
-
-Frontend:
-- MERN React UI → Guidewire Digital Portal (Jutro React Framework)
-
-Backend:
-- Node/Express API → Guidewire Integration Gateway + Service Layer
-- Microservices → PolicyCenter / BillingCenter / ClaimCenter workflows
-
-Database:
-- MongoDB → Guidewire DataHub + Operational Data Store (ODS)
-
-Feature Mapping:
-- Order Placement → PolicyCenter Submission Flow
-- Customer Account & Auth → Guidewire Identity & Access Management
-- Payment Processing → BillingCenter Invoicing + Payment Plan Engine
-- Order Tracking → ClaimCenter Service Request Case Tracking
-- Restaurant Onboarding → Vendor Management / Producer Integration
-
-Rewrite the document in the same structure:
-- Introduction
-- Objectives
-- Technology / Platform Architecture (Guidewire)
-- System Architecture (with modules explained)
-- Data Flow (step-by-step)
-- Key Features (mapped to Guidewire modules)
-- Benefits
-- Future Enhancements
-- Conclusion
-
-Ensure the rewritten output:
-- Uses clear enterprise terminology
-- Reflects real Guidewire implementation practices
-- Is **NOT** tied to insurance domain — keep the Food Delivery domain exactly same.
-
-
-
-
-Input:
-{chunk}
-"""
-                        }
-                    ]
-                }
-            ]
-
-            body = json.dumps({
-                "messages": messages,
-                "max_tokens": 4000,
-                "temperature": 0.2,
-                "anthropic_version": "bedrock-2023-05-31"
-            })
-
-            response = bedrock.invoke_model(
-                modelId="anthropic.claude-3-sonnet-20240229-v1:0",
-                body=body,
-                contentType="application/json",
-                accept="application/json"
-            )
-
-            result = json.loads(response["body"].read().decode("utf-8"))
-            transformed_chunk = result["content"][0]["text"].strip()
+            transformed_chunk = call_bedrock_agent(chunk)
             transformed_full_text += transformed_chunk + "\n\n"
 
+
         # 4️⃣ Generate PDF from transformed text
-        from utils import build_pdf_from_text
+       
         # pdf_bytes = build_pdf_from_text(transformed_full_text)
 
         # # 5️⃣ Return PDF as download
@@ -133,7 +86,7 @@ Input:
         #     headers={"Content-Disposition": f"attachment; filename=Guidewire_{file.filename.split('.')[0]}.pdf"}
         # )
 
-        from utils import build_pdf_from_text, build_docx_from_text
+        
 
 # Determine original file type
         ext = file.filename.lower().split(".")[-1]

@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+boto3
+pdfplumber
+python-docx
+python-pptx
+reportlab
+pydantic
