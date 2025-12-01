@@ -5,12 +5,11 @@ from fastapi import UploadFile
 from docx import Document
 from pptx import Presentation
 import pdfplumber
-
-# ReportLab
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import letter
-
+from reportlab.lib import colors
+import html
 
 async def read_file_to_text(file: UploadFile) -> str:
     """
@@ -225,35 +224,31 @@ def join_broken_lines(lines: List[str]) -> str:
 # -------------------------
 # PDF builder (robust multi-page)
 # -------------------------
-def build_pdf_from_text(text: str) -> bytes:
-    """
-    Create a multi-page PDF from cleaned text. We chunk into sensible sizes
-    (prefer breaking at sentence boundaries) to ensure ReportLab flows pages.
-    """
+# 
+
+
+
+
+def build_pdf_from_text_or_markdown(content: str) -> bytes:
+   
+   
+
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=letter,
-        topMargin=36,
-        bottomMargin=36,
-        leftMargin=40,
-        rightMargin=40
-    )
+    doc = SimpleDocTemplate(buffer, pagesize=letter,
+                            topMargin=36, bottomMargin=36,
+                            leftMargin=40, rightMargin=40)
     styles = getSampleStyleSheet()
     normal_style = styles["Normal"]
-
     story = []
-    # split into paragraphs (double-newline)
-    paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
 
-    # If very few paragraphs or very long paragraphs, further chunk them
+    lines = content.splitlines()
+    i = 0
+
     def chunk_paragraph(paragraph: str, max_chars: int = 900) -> List[str]:
         if len(paragraph) <= max_chars:
             return [paragraph]
-        # attempt to split on sentence boundaries:
         sentences = re.split(r'(?<=[.!?])\s+', paragraph)
-        chunks = []
-        cur = ""
+        chunks, cur = [], ""
         for s in sentences:
             if len(cur) + len(s) + 1 <= max_chars:
                 cur = (cur + " " + s).strip()
@@ -263,27 +258,101 @@ def build_pdf_from_text(text: str) -> bytes:
                 cur = s
         if cur:
             chunks.append(cur.strip())
-        # fallback: if any chunk longer than max_chars, do hard split
+        # further split very long chunks
         final = []
         for c in chunks:
             if len(c) <= max_chars:
                 final.append(c)
             else:
-                for i in range(0, len(c), max_chars):
-                    final.append(c[i:i+max_chars])
+                for j in range(0, len(c), max_chars):
+                    final.append(c[j:j+max_chars])
         return final
 
-    for para in paragraphs:
-        chunks = chunk_paragraph(para)
-        for ch in chunks:
-            # preserve line breaks within chunk by replacing single newlines with <br/>
-            ch = ch.replace("\n", "<br/>")
-            story.append(Paragraph(ch, normal_style))
-            story.append(Spacer(1, 8))
+    def is_table_start(line: str, next_line: str = "") -> bool:
+        if "|" not in line:
+            return False
+        if re.match(r'^[\|\-\s:]+$', next_line):
+            return True
+        return True if "|" in line else False
+
+    while i < len(lines):
+        line = lines[i].strip()
+        next_line = lines[i+1].strip() if i+1 < len(lines) else ""
+
+        if is_table_start(line, next_line):
+            # Collect table lines
+            table_lines = []
+            while i < len(lines) and "|" in lines[i]:
+                table_lines.append(lines[i])
+                i += 1
+
+            # Skip separator line if present
+            if len(table_lines) > 1 and re.match(r'^[\|\-\s:]+$', table_lines[1]):
+                table_lines.pop(1)
+
+            # Convert to 2D list for ReportLab safely
+            table_data = []
+            for tbl_line in table_lines:
+                # get cells between pipes
+                cells = [c.strip() for c in tbl_line.split("|")[1:-1]]
+                if not cells or all(not c for c in cells):
+                    continue  # skip empty rows
+                row = [Paragraph(html.escape(c), normal_style) for c in cells]
+                table_data.append(row)
+
+            # Only build table if valid
+            if table_data and len(table_data[0]) > 0:
+                tbl = Table(table_data, repeatRows=1)
+                tbl.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.black),
+                    ('ALIGN',(0,0),(-1,-1),'LEFT'),
+                    ('VALIGN',(0,0),(-1,-1),'TOP'),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold')
+                ]))
+                story.append(tbl)
+                story.append(Spacer(1, 12))
+        else:
+            # Collect paragraph lines (unchanged)
+            para_lines = []
+            while i < len(lines) and lines[i].strip() != "" and "|" not in lines[i]:
+                para_lines.append(lines[i].strip())
+                i += 1
+            if para_lines:
+                joined = []
+                j = 0
+                while j < len(para_lines):
+                    cur = para_lines[j]
+                    k = j + 1
+                    while k < len(para_lines):
+                        nxt = para_lines[k]
+                        if cur.endswith("-"):
+                            cur = cur[:-1] + nxt
+                            k += 1
+                            continue
+                        if re.search(r"[\.!\?:]\s*$", cur):
+                            break
+                        if re.match(r"^[a-z0-9]", nxt) or len(cur) < 40:
+                            cur = cur + " " + nxt
+                            k += 1
+                        else:
+                            break
+                    joined.append(cur.strip())
+                    j = k
+                for para in joined:
+                    for chunk in chunk_paragraph(para):
+                        safe_chunk = re.sub(r"</?para>", "", chunk, flags=re.IGNORECASE)
+                        safe_chunk = html.escape(safe_chunk).replace("\n", "<br/>")
+                        story.append(Paragraph(safe_chunk, normal_style))
+                        story.append(Spacer(1, 8))
+            else:
+                i += 1
 
     doc.build(story)
     buffer.seek(0)
     return buffer.read()
+
 def build_docx_from_text(text: str) -> bytes:
     """
     Create a DOCX file from cleaned text with basic formatting.
