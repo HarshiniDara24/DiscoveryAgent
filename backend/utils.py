@@ -353,21 +353,146 @@ def build_pdf_from_text_or_markdown(content: str) -> bytes:
     buffer.seek(0)
     return buffer.read()
 
-def build_docx_from_text(text: str) -> bytes:
-    """
-    Create a DOCX file from cleaned text with basic formatting.
-    """
+# def build_docx_from_text(text: str) -> bytes:
+#     """
+#     Create a DOCX file from cleaned text with basic formatting.
+#     """
+#     buffer = io.BytesIO()
+#     doc = Document()
+#     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+
+#     for para in paragraphs:
+#         doc.add_paragraph(para)
+#         doc.add_paragraph("")  # add a blank line between paragraphs
+
+#     doc.save(buffer)
+#     buffer.seek(0)
+#     return buffer.read()
+def build_docx_from_text(content: str) -> bytes:
+    import html
     buffer = io.BytesIO()
     doc = Document()
-    paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
 
-    for para in paragraphs:
-        doc.add_paragraph(para)
-        doc.add_paragraph("")  # add a blank line between paragraphs
+    lines = content.splitlines()
+    i = 0
 
+    # ---------- same logic as PDF ----------
+    def chunk_paragraph(paragraph: str, max_chars: int = 900) -> List[str]:
+        if len(paragraph) <= max_chars:
+            return [paragraph]
+
+        sentences = re.split(r"(?<=[.!?])\s+", paragraph)
+        chunks, cur = [], ""
+
+        for s in sentences:
+            if len(cur) + len(s) + 1 <= max_chars:
+                cur = (cur + " " + s).strip()
+            else:
+                if cur:
+                    chunks.append(cur.strip())
+                cur = s
+        if cur:
+            chunks.append(cur.strip())
+
+        final = []
+        for c in chunks:
+            if len(c) <= max_chars:
+                final.append(c)
+            else:
+                for j in range(0, len(c), max_chars):
+                    final.append(c[j:j+max_chars])
+        return final
+
+    def is_table_start(line: str, next_line: str = "") -> bool:
+        if "|" not in line:
+            return False
+        if re.match(r"^[\|\-\s:]+$", next_line):
+            return True
+        return "|" in line
+
+    # ---------- main parsing loop ----------
+    while i < len(lines):
+        line = lines[i].strip()
+        next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+
+        # ---------- TABLE HANDLING ----------
+        if is_table_start(line, next_line):
+            table_lines = []
+            while i < len(lines) and "|" in lines[i]:
+                table_lines.append(lines[i])
+                i += 1
+
+            # remove markdown separator row
+            if len(table_lines) > 1 and re.match(r"^[\|\-\s:]+$", table_lines[1]):
+                table_lines.pop(1)
+
+            # convert to rows
+            table_data = []
+            for tbl_line in table_lines:
+                cells = [c.strip() for c in tbl_line.split("|")[1:-1]]
+                if not any(cells):
+                    continue
+                table_data.append(cells)
+
+            if table_data:
+                t = doc.add_table(rows=len(table_data), cols=len(table_data[0]))
+                t.style = "Table Grid"
+
+                for r_idx, row in enumerate(table_data):
+                    for c_idx, cell in enumerate(row):
+                        t.cell(r_idx, c_idx).text = cell
+
+                doc.add_paragraph("")  # spacing after table
+
+        else:
+            # ---------- PARAGRAPH HANDLING ----------
+            para_lines = []
+            while i < len(lines) and lines[i].strip() != "" and "|" not in lines[i]:
+                para_lines.append(lines[i].strip())
+                i += 1
+
+            if para_lines:
+                # merge broken lines (same logic as PDF)
+                joined = []
+                j = 0
+                while j < len(para_lines):
+                    cur = para_lines[j]
+                    k = j + 1
+
+                    while k < len(para_lines):
+                        nxt = para_lines[k]
+
+                        if cur.endswith("-"):
+                            cur = cur[:-1] + nxt
+                            k += 1
+                            continue
+
+                        if re.search(r"[.!?:]\s*$", cur):
+                            break
+
+                        if re.match(r"^[a-z0-9]", nxt) or len(cur) < 40:
+                            cur = cur + " " + nxt
+                            k += 1
+                        else:
+                            break
+
+                    joined.append(cur.strip())
+                    j = k
+
+                # chunk long paragraphs
+                for para in joined:
+                    for chunk in chunk_paragraph(para):
+                        safe = html.escape(chunk)
+                        doc.add_paragraph(safe)
+                doc.add_paragraph("")  # paragraph spacing
+            else:
+                i += 1
+
+    # ---------- output ----------
     doc.save(buffer)
     buffer.seek(0)
     return buffer.read()
+
 
 async def extract_images_from_pdf(file: UploadFile) -> list[io.BytesIO]:
     """

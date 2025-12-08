@@ -25,12 +25,12 @@ app.add_middleware(
 bedrock_agent = boto3.client("bedrock-agent-runtime", region_name="us-west-2")
 
 
-def call_bedrock_agent(text_chunk: str) -> str:
+
+def call_bedrock_agent(text_chunk: str, session_id: str) -> str:
     response = bedrock_agent.invoke_agent(
         agentId="WV377KFVLT",
         agentAliasId="B7HMS35UT4",
-       
-        sessionId=str(uuid.uuid4()),
+        sessionId=session_id,      # <-- Use SAME session for every chunk
         inputText=text_chunk
     )
 
@@ -42,7 +42,6 @@ def call_bedrock_agent(text_chunk: str) -> str:
             pass
         elif "trace" in event:
             pass
-
 
     return output.strip()
 
@@ -67,30 +66,35 @@ async def clean_file(file: UploadFile = File(...)):
             return {"error": "No readable text found in file."}
 
         # 2️⃣ Helper function for chunked processing with continuation
-        def process_in_chunks(text: str, chunk_size=2500, overlap=500) -> str:
+
+     
+        def process_in_chunks(text: str, chunk_size=2800) -> str:
             transformed_full_text = ""
             i = 0
             chunk_index = 1
 
+                # ⬅ SAME SESSION FOR ALL CHUNKS
+            session_id = str(uuid.uuid4())
             while i < len(text):
                 chunk = text[i:i+chunk_size]
-                # Prepend instruction to continue from previous output if not first chunk
-                prompt_chunk = chunk
-                if i != 0:
+
+                if chunk_index == 1:
+                    prompt_chunk = chunk
+                else:
                     prompt_chunk = (
-                        "Continue the Guidewire document from the previous output, "
-                        "keeping all table structures and flowcharts intact:\n\n"
-                        + chunk
+                        "Continue the document WITHOUT repeating anything:\n\n" + chunk
                     )
 
-                transformed_chunk = call_bedrock_agent(prompt_chunk)
+                transformed_chunk = call_bedrock_agent(prompt_chunk, session_id)
                 transformed_full_text += transformed_chunk + "\n\n"
 
                 print(f"Processed chunk {chunk_index}")
-                i += chunk_size - overlap
+                i += chunk_size
                 chunk_index += 1
 
             return transformed_full_text
+
+
 
         # 3️⃣ Generate full transformed document
         transformed_full_text = process_in_chunks(text)
