@@ -13,17 +13,22 @@ from botocore.exceptions import ReadTimeoutError
 
 # your local utils - must exist in project
 from utils import read_file_to_text, build_pdf_from_text_or_markdown
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ---------------------------
 # Configuration - change if needed
 # ---------------------------
+print(boto3.client("sts").get_caller_identity())
+
 AWS_REGION = "us-west-2"
-AGENT_ID = "WV377KFVLT"
-AGENT_ALIAS_ID = "KLFEGE8GJ0"
+AGENT_ID = "AFFKQS2DKC"
+AGENT_ALIAS_ID = "LS5ZRSHSRL"
 
 # maximum safe characters to send as input (tweak per agent model / limits)
 # Keep conservative to avoid agent truncation on the backend
-MAX_INPUT_CHARS = 14000  # adjust upward if you know your agent can accept more
+MAX_INPUT_CHARS = 14000  
 
 # ---------------------------
 # Setup
@@ -41,6 +46,21 @@ app.add_middleware(
 
 bedrock_agent = boto3.client("bedrock-agent-runtime", region_name=AWS_REGION)
 
+# try:
+#     bedrock_agent = boto3.client(
+#         "bedrock-agent-runtime",
+#         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+#         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+#         # aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
+#         region_name="us-west-2"
+#     )
+#     # logger.info("Agent runtime client ready.")
+# except Exception as e:
+#     # logger.error("Error init agent runtime: %s", e)
+#     bedrock_agent = None
+
+
+
 
 # ---------------------------
 # Helpers
@@ -51,6 +71,7 @@ def call_bedrock_agent_input_only(input_text: str, session_id: str, retries: int
     IMPORTANT: We only pass inputText (no system/user prompt strings).
     This collects chunk events from response['completion'] and concatenates them.
     """
+
     attempt = 0
     while True:
         try:
