@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 from botocore.exceptions import ReadTimeoutError
-
+import os
 # your local utils - must exist in project
 from utils import read_file_to_text, build_pdf_from_text_or_markdown
 from dotenv import load_dotenv
@@ -44,20 +44,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-bedrock_agent = boto3.client("bedrock-agent-runtime", region_name=AWS_REGION)
+# bedrock_agent = boto3.client("bedrock-agent-runtime", region_name=AWS_REGION)
 
-# try:
-#     bedrock_agent = boto3.client(
-#         "bedrock-agent-runtime",
-#         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-#         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-#         # aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
-#         region_name="us-west-2"
-#     )
-#     # logger.info("Agent runtime client ready.")
-# except Exception as e:
-#     # logger.error("Error init agent runtime: %s", e)
-#     bedrock_agent = None
+try:
+    bedrock_agent = boto3.client(
+        "bedrock-agent-runtime",
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        # aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
+        region_name="us-west-2"
+    )
+    # logger.info("Agent runtime client ready.")
+except Exception as e:
+    # logger.error("Error init agent runtime: %s", e)
+    bedrock_agent = None
 
 
 
