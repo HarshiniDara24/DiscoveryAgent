@@ -171,20 +171,12 @@ from lxml import etree
 * Timeout: **60–120 seconds**
 * Memory: **1024 MB or higher**
 
-### 8.2 Environment Variables
-
-Add:
-
-* `AWS_REGION`
-* `BEDROCK_MODEL_ID`
-
----
 
 ## 9. Create API Gateway
 
 1. Go to **API Gateway → Create API**
 2. Choose **REST API**
-3. API name: `bedrock-lambda-api`
+3. API name: `discovery-agentapi`
 4. Click **Create API**
 
 ---
@@ -193,13 +185,13 @@ Add:
 
 ### 10.1 Create Resource
 
-* Resource name: `/process`
+* Resource name: `/discovery-agent`
 
 ### 10.2 Create Method
 
 * Method: **POST**
 * Integration type: **Lambda Function**
-* Lambda Function: `bedrock-file-processor`
+* Lambda Function: `clean-file-agent`
 * Enable **Lambda Proxy Integration**
 
 ---
