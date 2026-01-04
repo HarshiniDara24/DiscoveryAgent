@@ -1,7 +1,6 @@
 import io
 import re
 from typing import List
-from fastapi import UploadFile
 from docx import Document
 from pptx import Presentation
 import pdfplumber
@@ -10,62 +9,49 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 import html
+import io, re
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
 
-async def read_file_to_text(file: UploadFile) -> str:
-    """
-    Read file bytes and return cleaned text. Handles txt/docx/pdf/pptx.
-    For PDFs we use per-page extraction and then normalize.
-    """
-    contents = await file.read()
-    name = file.filename.lower()
+from io import BytesIO
 
-    if name.endswith(".txt"):
-        raw = contents.decode("utf-8", errors="ignore")
-        return normalize_whitespace(raw)
+def read_file_bytes(filename: str, content_base64: str) -> str:
+    import base64
+    
 
-    if name.endswith(".docx"):
-        doc = Document(io.BytesIO(contents))
+    contents = base64.b64decode(content_base64)
+    if filename.lower().endswith(".txt"):
+        return normalize_whitespace(contents.decode("utf-8", errors="ignore"))
+    if filename.lower().endswith(".docx"):
+        from docx import Document
+        doc = Document(BytesIO(contents))
         raw = "\n".join(p.text for p in doc.paragraphs)
         return normalize_whitespace(raw)
-
-    if name.endswith(".pptx"):
-        presentation = Presentation(io.BytesIO(contents))
+    if filename.lower().endswith(".pptx"):
+        from pptx import Presentation
+        pres = Presentation(BytesIO(contents))
         pieces = []
-        for slide in presentation.slides:
+        for slide in pres.slides:
             for shape in slide.shapes:
                 if hasattr(shape, "text"):
                     pieces.append(shape.text)
-        raw = "\n".join(pieces)
-        return normalize_whitespace(raw)
-
-    if name.endswith(".pdf"):
+        return normalize_whitespace("\n".join(pieces))
+    if filename.lower().endswith(".pdf"):
+        import pdfplumber
         pages_text = []
-        with pdfplumber.open(io.BytesIO(contents)) as pdf:
+        with pdfplumber.open(BytesIO(contents)) as pdf:
             for page in pdf.pages:
                 text = page.extract_text() or ""
-                # split into lines to preserve page structure
                 lines = [ln.rstrip() for ln in text.splitlines()]
                 pages_text.append(lines)
-
-        if not any(pages_text):
-            return ""  # no selectable text
-
-        # remove repeated headers/footers across pages
+        
         pages_text = remove_repeated_header_footer(pages_text)
-
-        # join lines inside pages with heuristics
-        page_paragraphs = []
-        for lines in pages_text:
-            joined = join_broken_lines(lines)
-            page_paragraphs.append(joined)
-
-        # join pages with a page-break marker (double newline)
-        raw = "\n\n".join(page_paragraphs)
-        raw = normalize_whitespace(raw)
-        return raw
-
-    # default fallback
+        page_paragraphs = [join_broken_lines(p) for p in pages_text]
+        return normalize_whitespace("\n\n".join(page_paragraphs))
     return contents.decode("utf-8", errors="ignore")
+
 
 
 # -------------------------
@@ -229,136 +215,8 @@ def join_broken_lines(lines: List[str]) -> str:
 
 
 
-# def build_pdf_from_text_or_markdown(content: str) -> bytes:
-   
-   
-
-#     buffer = io.BytesIO()
-#     doc = SimpleDocTemplate(buffer, pagesize=letter,
-#                             topMargin=36, bottomMargin=36,
-#                             leftMargin=40, rightMargin=40)
-#     styles = getSampleStyleSheet()
-#     normal_style = styles["Normal"]
-#     story = []
-
-#     lines = content.splitlines()
-#     i = 0
-
-#     def chunk_paragraph(paragraph: str, max_chars: int = 900) -> List[str]:
-#         if len(paragraph) <= max_chars:
-#             return [paragraph]
-#         sentences = re.split(r'(?<=[.!?])\s+', paragraph)
-#         chunks, cur = [], ""
-#         for s in sentences:
-#             if len(cur) + len(s) + 1 <= max_chars:
-#                 cur = (cur + " " + s).strip()
-#             else:
-#                 if cur:
-#                     chunks.append(cur.strip())
-#                 cur = s
-#         if cur:
-#             chunks.append(cur.strip())
-#         # further split very long chunks
-#         final = []
-#         for c in chunks:
-#             if len(c) <= max_chars:
-#                 final.append(c)
-#             else:
-#                 for j in range(0, len(c), max_chars):
-#                     final.append(c[j:j+max_chars])
-#         return final
-
-#     def is_table_start(line: str, next_line: str = "") -> bool:
-#         if "|" not in line:
-#             return False
-#         if re.match(r'^[\|\-\s:]+$', next_line):
-#             return True
-#         return True if "|" in line else False
-
-#     while i < len(lines):
-#         line = lines[i].strip()
-#         next_line = lines[i+1].strip() if i+1 < len(lines) else ""
-
-#         if is_table_start(line, next_line):
-#             # Collect table lines
-#             table_lines = []
-#             while i < len(lines) and "|" in lines[i]:
-#                 table_lines.append(lines[i])
-#                 i += 1
-
-#             # Skip separator line if present
-#             if len(table_lines) > 1 and re.match(r'^[\|\-\s:]+$', table_lines[1]):
-#                 table_lines.pop(1)
-
-#             # Convert to 2D list for ReportLab safely
-#             table_data = []
-#             for tbl_line in table_lines:
-#                 # get cells between pipes
-#                 cells = [c.strip() for c in tbl_line.split("|")[1:-1]]
-#                 if not cells or all(not c for c in cells):
-#                     continue  # skip empty rows
-#                 row = [Paragraph(html.escape(c), normal_style) for c in cells]
-#                 table_data.append(row)
-
-#             # Only build table if valid
-#             if table_data and len(table_data[0]) > 0:
-#                 tbl = Table(table_data, repeatRows=1)
-#                 tbl.setStyle(TableStyle([
-#                     ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-#                     ('TEXTCOLOR', (0,0), (-1,0), colors.black),
-#                     ('ALIGN',(0,0),(-1,-1),'LEFT'),
-#                     ('VALIGN',(0,0),(-1,-1),'TOP'),
-#                     ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-#                     ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold')
-#                 ]))
-#                 story.append(tbl)
-#                 story.append(Spacer(1, 12))
-#         else:
-#             # Collect paragraph lines (unchanged)
-#             para_lines = []
-#             while i < len(lines) and lines[i].strip() != "" and "|" not in lines[i]:
-#                 para_lines.append(lines[i].strip())
-#                 i += 1
-#             if para_lines:
-#                 joined = []
-#                 j = 0
-#                 while j < len(para_lines):
-#                     cur = para_lines[j]
-#                     k = j + 1
-#                     while k < len(para_lines):
-#                         nxt = para_lines[k]
-#                         if cur.endswith("-"):
-#                             cur = cur[:-1] + nxt
-#                             k += 1
-#                             continue
-#                         if re.search(r"[\.!\?:]\s*$", cur):
-#                             break
-#                         if re.match(r"^[a-z0-9]", nxt) or len(cur) < 40:
-#                             cur = cur + " " + nxt
-#                             k += 1
-#                         else:
-#                             break
-#                     joined.append(cur.strip())
-#                     j = k
-#                 for para in joined:
-#                     for chunk in chunk_paragraph(para):
-#                         safe_chunk = re.sub(r"</?para>", "", chunk, flags=re.IGNORECASE)
-#                         safe_chunk = html.escape(safe_chunk).replace("\n", "<br/>")
-#                         story.append(Paragraph(safe_chunk, normal_style))
-#                         story.append(Spacer(1, 8))
-#             else:
-#                 i += 1
-
-#     doc.build(story)
-#     buffer.seek(0)
-#     return buffer.read()
 def build_pdf_from_text_or_markdown(content: str) -> bytes:
-    import io, re
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    from reportlab.lib.pagesizes import letter
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib import colors
-
+  
     # 1️⃣ Remove invisible/control chars that corrupt PDF
     content = re.sub(r"[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]", "", content)
     content = content.replace("\r", "")
@@ -480,21 +338,6 @@ def build_pdf_from_text_or_markdown(content: str) -> bytes:
     return buffer.read()
 
 
-# def build_docx_from_text(text: str) -> bytes:
-#     """
-#     Create a DOCX file from cleaned text with basic formatting.
-#     """
-#     buffer = io.BytesIO()
-#     doc = Document()
-#     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
-
-#     for para in paragraphs:
-#         doc.add_paragraph(para)
-#         doc.add_paragraph("")  # add a blank line between paragraphs
-
-#     doc.save(buffer)
-#     buffer.seek(0)
-#     return buffer.read()
 def build_docx_from_text(content: str) -> bytes:
     import html
     buffer = io.BytesIO()
@@ -621,18 +464,6 @@ def build_docx_from_text(content: str) -> bytes:
     return buffer.read()
 
 
-async def extract_images_from_pdf(file: UploadFile) -> list[io.BytesIO]:
-    """
-    Extract all images (diagrams) from the uploaded PDF and return as list of BytesIO.
-    """
-    images = []
-    contents = await file.read()
-    doc = fitz.open(stream=contents, filetype="pdf")
-    for page in doc:
-        for img in page.get_images(full=True):
-            xref = img[0]
-            base_image = doc.extract_image(xref)
-            image_bytes = io.BytesIO(base_image["image"])
-            images.append(image_bytes)
-    return images
+
+
 

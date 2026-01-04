@@ -1,191 +1,116 @@
-
-// import React, { useState } from "react";
-// import "./App.css"; // ✅ Make sure this file exists in src/
-
-// function App() {
-//   const [file, setFile] = useState(null);
-//   const [loading, setLoading] = useState(false);
-
-//   const handleFileChange = (e) => setFile(e.target.files[0]);
-
-//   const handleSubmit = async (e) => {
-//     e.preventDefault();
-//     if (!file) return alert("Please select a file!");
-//     setLoading(true);
-
-//     const formData = new FormData();
-//     formData.append("file", file);
-
-//     try {
-//       const res = await fetch("http://127.0.0.1:8000/clean-file", {
-//         method: "POST",
-//         body: formData
-//       });
-
-//       if (!res.ok) {
-//         const err = await res.json().catch(() => ({}));
-//         alert("Error: " + (err.error || "Processing failed"));
-//         setLoading(false);
-//         return;
-//       }
-
-//       // const blob = await res.blob();
-//       // const url = window.URL.createObjectURL(blob);
-//       // const a = document.createElement("a");
-//       // a.href = url;
-//       // a.download = `cleaned_${file.name.replace(/\.[^/.]+$/, "")}.pdf`;
-//       // document.body.appendChild(a);
-//       // a.click();
-//       // a.remove();
-//       // window.URL.revokeObjectURL(url);
-//       const blob = await res.blob();
-//         const url = window.URL.createObjectURL(blob);
-
-//         // ✅ Try to extract filename from backend header
-//         const contentDisposition = res.headers.get("content-disposition");
-//         let filename = `cleaned_${file.name.replace(/\.[^/.]+$/, "")}`;
-
-//         if (contentDisposition) {
-//           const match = contentDisposition.match(/filename="?([^"]+)"?/);
-//           if (match) {
-//             filename = match[1];
-//           }
-//         }
-
-//         const a = document.createElement("a");
-//         a.href = url;
-//         a.download = filename;
-//         document.body.appendChild(a);
-//         a.click();
-//         a.remove();
-//         window.URL.revokeObjectURL(url);
-
-//     } catch (ex) {
-//       console.error(ex);
-//       alert("Failed to connect to backend");
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   return (
-//     <div className="container">
-//       <div className="card">
-//         <h2>File Cleaner</h2>
-//         <form onSubmit={handleSubmit}>
-//           <input
-//             type="file"
-//             onChange={handleFileChange}
-//             accept=".txt,.pdf,.docx,.pptx"
-//             className="file-input"
-//           />
-
-//           <button type="submit" disabled={loading} className="submit-btn">
-//             {loading ? "Cleaning..." : "Upload & Clean"}
-//           </button>
-//         </form>
-//       </div>
-//     </div>
-//   );
-// }
-
-// export default App;
-
-
 import React, { useState } from "react";
-import "./App.css"; // ✅ Make sure this file exists in src/
+import "./App.css";
 
 function App() {
-  // const [file, setFile] = useState(null);
   const [files, setFiles] = useState([]);
-
   const [loading, setLoading] = useState(false);
 
- // const handleFileChange = (e) => setFile(e.target.files[0]);
- //const handleFileChange = (e) => setFiles([...e.target.files]);
- const handleFileChange = (e) => {
-  const newFiles = Array.from(e.target.files);
-  setFiles((prevFiles) => {
-    // Avoid duplicates by filename
-    const allFiles = [...prevFiles];
-    newFiles.forEach((file) => {
-      if (!allFiles.some((f) => f.name === file.name)) {
-        allFiles.push(file);
-      }
-    });
-    return allFiles;
-  });
-
-  // Reset input so same file can be selected again if needed
-  e.target.value = null;
-};
-
-
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    // if (!file) return alert("Please select a file!");
-    if (files.length === 0) return alert("Please select at least one file!");
-    setLoading(true);
-
-    const formData = new FormData();
-    //formData.append("file", file);
-    files.forEach((f) => formData.append("files", f));
-
-
-    try {
-      const res = await fetch("http://127.0.0.1:8000/clean-file", {
-        method: "POST",
-        body: formData
+  // Handle file selection
+  const handleFileChange = (e) => {
+    const newFiles = Array.from(e.target.files);
+    setFiles((prev) => {
+      const allFiles = [...prev];
+      newFiles.forEach((file) => {
+        if (!allFiles.some((f) => f.name === file.name)) {
+          allFiles.push(file);
+        }
       });
+      return allFiles;
+    });
+    e.target.value = null; // allow re-selecting same file
+  };
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert("Error: " + (err.error || "Processing failed"));
+  // Remove a file
+  const handleRemoveFile = (index) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Submit to Lambda
+const MAX_FILE_SIZE_MB = 5; // Max 5 MB per file
+const MAX_TOTAL_SIZE_MB = 10; // Max 10 MB total for all files
+
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  if (files.length === 0) return alert("Please select at least one file!");
+  setLoading(true);
+
+  try {
+    // Check file sizes
+    let totalSize = 0;
+    for (const file of files) {
+      totalSize += file.size;
+      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        alert(`File "${file.name}" exceeds ${MAX_FILE_SIZE_MB} MB limit.`);
         setLoading(false);
         return;
       }
-
-      // const blob = await res.blob();
-      // const url = window.URL.createObjectURL(blob);
-      // const a = document.createElement("a");
-      // a.href = url;
-      // a.download = `cleaned_${file.name.replace(/\.[^/.]+$/, "")}.pdf`;
-      // document.body.appendChild(a);
-      // a.click();
-      // a.remove();
-      // window.URL.revokeObjectURL(url);
-      const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-
-        // ✅ Try to extract filename from backend header
-        const contentDisposition = res.headers.get("content-disposition");
-        // let filename = `cleaned_${file.name.replace(/\.[^/.]+$/, "")}`;
-        let filename = "cleaned_output.pdf";
-
-
-        if (contentDisposition) {
-          const match = contentDisposition.match(/filename="?([^"]+)"?/);
-          if (match) {
-            filename = match[1];
-          }
-        }
-
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-
-    } catch (ex) {
-      console.error(ex);
-      alert("Failed to connect to backend");
-    } finally {
-      setLoading(false);
     }
-  };
+    if (totalSize > MAX_TOTAL_SIZE_MB * 1024 * 1024) {
+      alert(`Total files exceed ${MAX_TOTAL_SIZE_MB} MB limit.`);
+      setLoading(false);
+      return;
+    }
+
+    // Convert files to base64
+    const filesData = await Promise.all(
+      files.map(
+        (file) =>
+          new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const base64 = reader.result.split(",")[1]; // remove prefix
+              resolve({ filename: file.name, content: base64 });
+            };
+            reader.onerror = (err) => reject(err);
+            reader.readAsDataURL(file);
+          })
+      )
+    );
+
+    // Send POST request
+    const res = await fetch(
+      "",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: filesData }),
+      }
+    );
+
+    if (!res.ok) {
+      // Try to read JSON or raw text for error
+      let errorText = "";
+      try {
+        const errJson = await res.json();
+        errorText = errJson.error || JSON.stringify(errJson);
+      } catch {
+        errorText = await res.text();
+      }
+      console.error("Backend error:", errorText);
+      alert("Error: " + (errorText || "Processing failed"));
+      setLoading(false);
+      return;
+    }
+
+    // Receive PDF blob
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "cleaned_output.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (ex) {
+    console.error("Client error:", ex);
+    alert("Failed to connect to backend");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   return (
     <div className="container">
@@ -199,15 +124,19 @@ function App() {
             accept=".txt,.pdf,.docx,.pptx"
             className="file-input"
           />
-          
-            {/* Display selected files */}
-              {files.length > 0 && (
-                <ul className="file-list">
-                  {files.map((f, idx) => (
-                    <li key={idx}>{f.name}</li>
-                  ))}
-                </ul>
-              )}
+
+          {files.length > 0 && (
+            <ul className="file-list">
+              {files.map((f, idx) => (
+                <li key={idx}>
+                  {f.name}{" "}
+                  <button type="button" onClick={() => handleRemoveFile(idx)}>
+                    ❌
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
 
           <button type="submit" disabled={loading} className="submit-btn">
             {loading ? "Cleaning..." : "Upload & Clean"}
