@@ -257,3 +257,221 @@ React UI → API Gateway → Lambda → Amazon Bedrock
 ---
 
 ✅ Setup Complete
+
+
+
+
+API GATEWAY
+Create IAM Role for API Gateway
+
+IAM → Roles → Create role
+
+Trusted entity:
+
+AWS service
+
+
+Use case:
+
+API Gateway
+
+
+Attach policy:
+
+AmazonAPIGatewayPushToCloudWatchLogs
+
+Add inline policy:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:us-west-2:577797501420:function:guidewire-lambda"
+    }
+  ]
+}
+
+
+Name role:
+👉 guidewire-apigateway-role
+
+
+
+PART 1: Create / Verify Lambda
+
+Go to AWS Console → Lambda
+
+Create or open your function
+Example: clean-file-agent
+
+Test it inside Lambda using:
+
+{
+  "input_s3_bucket": "guidewire-input-files-1234",
+  "output_s3_bucket": "guidewire-output-files-1234",
+  "output_s3_key": "combined_output.pdf"
+}
+
+
+✅ Must work before API Gateway
+
+🟢 PART 2: Create API Gateway
+
+Go to API Gateway
+
+Click Create API
+
+Choose REST API
+
+Click Build
+
+API name:
+
+clean-file-api
+
+
+Click Create API
+
+🟢 PART 3: Create Resource
+
+Go to Resources
+
+Click Actions → Create Resource
+
+Resource name:
+
+process
+
+
+Resource path:
+
+/process
+
+
+Click Create Resource
+
+🟢 PART 4: Create POST Method
+
+Select /process
+
+Click Actions → Create Method → POST
+
+Integration type: Lambda Function
+
+Lambda region: us-west-2
+
+Lambda function name:
+
+clean-file-agent
+
+
+❌ UNCHECK Lambda proxy integration
+
+Click Save
+
+Click OK on permission popup
+👉 (this auto-adds policy to Lambda)
+
+🟢 PART 5: Add Lambda Permission (POLICY STEP)
+
+If popup did NOT appear:
+
+Go to Lambda → clean-file-agent
+
+Click Configuration → Permissions
+
+Scroll to Resource-based policy
+
+Click Add permission
+
+Fill:
+
+Principal: apigateway.amazonaws.com
+
+Action: lambda:InvokeFunction
+
+Source ARN:
+
+arn:aws:execute-api:us-west-2:577797501420:YOUR_API_ID/*/POST/process
+
+
+Example:
+
+arn:aws:execute-api:us-west-2:577797501420:llze4symwi/*/POST/process
+
+
+Click Save
+
+✅ Now API Gateway is allowed to call Lambda
+
+🟢 PART 6: Mapping Template
+
+Click POST
+
+Click Integration Request
+
+Scroll to Mapping Templates
+
+Click Add mapping template
+
+Content-Type:
+
+application/json
+
+
+Paste:
+
+{
+  "input_s3_bucket": "$input.json('$.input_s3_bucket')",
+  "output_s3_bucket": "$input.json('$.output_s3_bucket')",
+  "output_s3_key": "$input.json('$.output_s3_key')"
+}
+
+
+Click Save
+
+🟢 PART 7: Method Response
+
+Click Method Response
+
+Ensure 200 exists
+
+No changes needed
+
+🟢 PART 8: Integration Response
+
+Click Integration Response
+
+Ensure 200 exists
+
+No changes needed
+
+🟢 PART 9: Deploy API
+
+Click Actions → Deploy API
+
+Choose New stage
+
+Stage name:
+
+prod
+
+
+Click Deploy
+
+🟢 PART 10: Test from Postman
+
+POST:
+
+https://staqohbep9.execute-api.us-west-2.amazonaws.com/prod/process
+
+
+Body:
+
+{
+  "input_s3_bucket": "guidewire-input-files-1234",
+  "output_s3_bucket": "guidewire-output-files-1234",
+  "output_s3_key": "guidewire_combined_output.pdf"
+}
